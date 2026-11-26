@@ -13,7 +13,7 @@ import { PolySwarmDB } from "../src/core/db.js";
 import { PolySwarmEngine, truncateUtf8Bytes } from "../src/core/engine.js";
 import { StallWatchdog } from "../src/core/watchdog.js";
 import { WorkflowRunner } from "../src/core/workflow.js";
-import { runGit } from "../src/core/worktree.js";
+import { runGit, WorkspaceManager } from "../src/core/worktree.js";
 
 const tmpDirs: string[] = [];
 
@@ -388,7 +388,7 @@ console.log(JSON.stringify({type:"result", conversation_id:login, result: "@coor
     const repo = await initTempRepo();
     const dataDir = makeTempDir("poly-eng-data-");
     const db = new PolySwarmDB(dataDir);
-    const config = loadPolySwarmConfig("/nonexistent-path");
+    const config = { ...loadPolySwarmConfig("/nonexistent-path"), requireIndependentReviewForMerge: false };
     const engine = new PolySwarmEngine({ db, config });
 
     try {
@@ -443,6 +443,61 @@ console.log(JSON.stringify({type:"result", conversation_id:login, result: "@coor
       const merge = await engine.mergeWorker(swarm.id, "dev");
       assert.equal(merge.ok, true);
       assert.ok(fs.existsSync(path.join(repo, "greet.ts")));
+    } finally {
+      engine.shutdown();
+      db.close();
+    }
+  });
+
+  it("requires real, independent, commit-bound verifier evidence at the engine merge boundary", async () => {
+    const repo = await initTempRepo();
+    const dataDir = makeTempDir("poly-reviewed-merge-");
+    const db = new PolySwarmDB(dataDir);
+    const wm = new WorkspaceManager();
+    const engine = new PolySwarmEngine({ db, config: loadPolySwarmConfig(path.join(dataDir, "backends.json")) });
+    try {
+      const swarm = db.createSwarm({ title: "reviewed merge", repo_root: repo, base_branch: "main" });
+      const work = await wm.prepareWorkspace(repo, swarm.id, "dev", "share");
+      const worker = db.addWorker({
+        swarm_id: swarm.id, name: "dev", role: "author", capability: "author", backend: "codex",
+        model: "gpt-test", workspace_mode: "share", workspace_path: work.workspacePath, worktree_branch: work.worktreeBranch,
+      });
+      db.addWorker({
+        swarm_id: swarm.id, name: "reviewer", role: "verifier", capability: "verifier", backend: "grok",
+        workspace_mode: "inherit", workspace_path: repo, review_of: worker.name,
+      });
+      const base = (await runGit(repo, ["rev-parse", "HEAD"])).stdout.trim();
+      fs.writeFileSync(path.join(work.workspacePath, "change.txt"), "reviewed");
+      await wm.commitAllIfDirty(work.workspacePath, "change");
+      const sha = (await runGit(work.workspacePath, ["rev-parse", "HEAD"])).stdout.trim();
+      const merge = () => engine.mergeWorker(swarm.id, worker.name);
+      const say = (tag: "review_pass" | "review_fail", text: string, turn_id?: string) =>
+        db.postBoardMessage({ swarm_id: swarm.id, sender: "reviewer", tag, text, turn_id });
+      const review = (backend: BackendId, model: string, tag: "review_pass" | "review_fail", commit: string) => {
+        const turn = db.createTurn({
+          swarm_id: swarm.id, worker_name: "reviewer", backend, model, mode: "readonly", prompt_preview: "review",
+        });
+        const text = `[${tag}] commit: ${commit}`;
+        db.completeTurn(turn.id, { status: "completed", error_kind: "none", duration_ms: 10, tool_calls_count: 0, output_text: text });
+        say(tag, text, turn.id);
+      };
+      assert.match((await merge()).message, /review_pass required/);
+      say("review_pass", `[review_pass] commit: ${sha}`); // spoofed board post, no turn
+      assert.match((await merge()).message, /completed strict-readonly/);
+      review("cursor", "gpt-test", "review_pass", sha); // same actual model family as author
+      assert.match((await merge()).message, /independent/);
+      review("grok", "grok-test", "review_pass", base);
+      assert.match((await merge()).message, /stale/);
+      review("grok", "grok-test", "review_fail", sha);
+      assert.match((await merge()).message, /review_pass required/);
+      review("grok", "grok-test", "review_pass", sha);
+      fs.writeFileSync(path.join(work.workspacePath, "dirty.txt"), "unreviewed");
+      assert.match((await merge()).message, /dirty/);
+      fs.unlinkSync(path.join(work.workspacePath, "dirty.txt"));
+      assert.equal((await runGit(repo, ["rev-parse", "HEAD"])).stdout.trim(), base);
+      assert.match((await engine.mergeWorker(swarm.id, worker.name, { expectedSha: base })).message, /Requested expected SHA/);
+      assert.equal((await merge()).ok, true);
+      assert.equal((await runGit(repo, ["rev-parse", "HEAD^2"])).stdout.trim(), sha);
     } finally {
       engine.shutdown();
       db.close();

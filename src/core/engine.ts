@@ -77,7 +77,7 @@ import {
   sanitizePolicyLayer,
   saveProjectPolicy,
 } from "./policy.js";
-import { runGit, WorkspaceManager } from "./worktree.js";
+import { runGit, WorkspaceManager, type MergeResult } from "./worktree.js";
 
 const WORKER_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,23}$/;
 const RESERVED_NAMES = new Set(["all", "coordinator", "watchdog"]);
@@ -1551,7 +1551,7 @@ export class PolySwarmEngine extends EventEmitter {
       }
       if (worker.role === "verifier") {
         headerParts.push(
-          "STRICT READONLY VERIFIER RULE: You must NEVER edit, create, or delete files. Inspect code, run read-only checks/tests, and post findings to @author or @coordinator with [review_pass] or [review_fail].",
+          "STRICT READONLY VERIFIER RULE: You must NEVER edit, create, or delete files. Inspect code, run read-only checks/tests, and post findings to @author or @coordinator with [review_pass] or [review_fail]. For review_pass, explicitly include commit: <full reviewed commit SHA>.",
         );
       } else if (worker.role === "researcher") {
         headerParts.push(
@@ -2434,6 +2434,54 @@ export class PolySwarmEngine extends EventEmitter {
     return false;
   }
 
+  /**
+   * The dashboard is advisory; every merge entry point must check the same
+   * persisted review evidence and pass the exact reviewed object to Git.
+   */
+  private async reviewedMergeSha(swarm: SwarmRecord, author: WorkerRecord): Promise<string> {
+    const review = this.db.listLatestDeliverableReviews(swarm.id).find((item) => item.review_of === author.name);
+    if (!review || review.tag !== "review_pass") throw new Error("Independent review_pass required before merging.");
+    const reviewer = this.db.getWorker(swarm.id, review.sender);
+    const turn = review.turn_id ? this.db.getTurn(review.turn_id) : null;
+    if (!reviewer || reviewer.role !== "verifier" || reviewer.name === author.name ||
+        !turn || turn.swarm_id !== swarm.id || turn.worker_name !== reviewer.name ||
+        turn.mode !== "readonly" || turn.status !== "completed" || turn.error_kind !== "none" ||
+        turn.backend === "mock" || !this.registry.get(turn.backend).capabilities.supportsStrictReadonly) {
+      throw new Error("Review must originate from a completed strict-readonly verifier turn.");
+    }
+    const reviewerModel = turn.actual_model ?? turn.model;
+    const writerBackends = this.db.listWorkerWriteBackends(swarm.id, author.name);
+    if (!isIndependentBackend(turn.backend, reviewerModel, author) ||
+        writerBackends.some((writer) => !isIndependentBackend(turn.backend, reviewerModel, {
+          backend: writer.backend, model: writer.actual_model ?? writer.model,
+        }))) {
+      throw new Error("Reviewer must be independent of the author and all recorded write backends.");
+    }
+    const sha = reviewedCommit(review.text);
+    if (!sha) throw new Error("Review must identify exactly one commit SHA.");
+    if (!swarm.base_branch || !author.worktree_branch || !fs.existsSync(author.workspace_path)) {
+      throw new Error("Reviewed merge requires an existing isolated workspace and target branch.");
+    }
+    const status = await this.workspace.getWorkspaceStatus(author.workspace_path);
+    if (!status || status.branch !== author.worktree_branch || status.dirty) {
+      throw new Error("Author workspace is dirty or not on its expected branch. Commit and request a new review.");
+    }
+    const head = (await runGit(author.workspace_path, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim().toLowerCase();
+    if (!head.startsWith(sha)) throw new Error("Review is stale: author HEAD does not match the reviewed SHA.");
+    if (sha !== head) {
+      const resolved = (await runGit(author.workspace_path, ["rev-parse", `--disambiguate=${sha}`])).stdout.trim().toLowerCase();
+      if (resolved !== head) throw new Error("Reviewed SHA is ambiguous; request a review with the full commit SHA.");
+    }
+    // Re-read after the asynchronous Git inspection: do not accept a superseded
+    // review or a worker that has begun another turn in the meantime.
+    const latest = this.db.listLatestDeliverableReviews(swarm.id).find((item) => item.review_of === author.name);
+    if (latest?.seq !== review.seq || this.db.getWorker(swarm.id, author.name)?.state === "working") {
+      throw new Error("Review or author state changed while preparing merge; retry after review.");
+    }
+    this.assertSwarmWritable(swarm.id);
+    return head;
+  }
+
   async mergeWorker(swarmId: string, name: string, opts?: { expectedSha?: string }) {
     const swarm = this.assertSwarmWritable(swarmId);
     const worker = this.db.getWorker(swarmId, name);
@@ -2444,12 +2492,26 @@ export class PolySwarmEngine extends EventEmitter {
     if (worker.state === "working") {
       throw new Error(`Worker '${name}' is still working.`);
     }
-    const result = await this.workspace.mergeWorkerBranch(
-      swarm.repo_root,
-      worker.worktree_branch,
-      worker.workspace_path,
-      { targetBranch: swarm.base_branch, expectedSha: opts?.expectedSha },
-    );
+    let result: MergeResult;
+    let expectedSha = opts?.expectedSha;
+    try {
+      if (this.config.requireIndependentReviewForMerge !== false) {
+        const reviewedSha = await this.reviewedMergeSha(swarm, worker);
+        if (expectedSha !== undefined && (!/^[a-f0-9]{7,64}$/i.test(expectedSha) ||
+            !reviewedSha.startsWith(expectedSha.toLowerCase()))) {
+          throw new Error("Requested expected SHA does not match the reviewed commit.");
+        }
+        expectedSha = reviewedSha;
+      }
+      result = await this.workspace.mergeWorkerBranch(
+        swarm.repo_root,
+        worker.worktree_branch,
+        worker.workspace_path,
+        { targetBranch: swarm.base_branch, expectedSha },
+      );
+    } catch (err) {
+      result = { ok: false, conflicts: [], message: err instanceof Error ? err.message : String(err) };
+    }
     const mergePost = await this.postMessage({
       swarm_id: swarmId,
       sender: "coordinator",

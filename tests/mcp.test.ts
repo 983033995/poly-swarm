@@ -945,6 +945,7 @@ if (process.argv[2] === "app-server") {
     const dataDir = makeTempDir("poly-mcp-merge-data-");
     const configPath = path.join(dataDir, "backends.json");
     fs.writeFileSync(configPath, JSON.stringify({
+      requireIndependentReviewForMerge: false, // explicitly exercise the legacy SHA guard
       backends: Object.fromEntries(REAL_BACKEND_IDS.map((id) => [id, { enabled: false }])),
     }));
     const repo = makeTempDir("poly-mcp-merge-repo-");
