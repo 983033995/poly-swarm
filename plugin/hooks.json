@@ -1,0 +1,12 @@
+{
+  "poly-swarm-session-recap": {
+    "enabled": true,
+    "PostInvocation": [
+      {
+        "type": "command",
+        "command": "./scripts/post-invocation-hook.sh",
+        "timeout": 5
+      }
+    ]
+  }
+}

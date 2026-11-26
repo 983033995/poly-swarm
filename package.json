@@ -1,0 +1,25 @@
+{
+  "name": "poly-swarm",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "description": "Heterogeneous CLI multi-agent orchestrator and Antigravity MCP App",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/build.mjs --tests && node --test dist-tests/*.test.mjs",
+    "install-plugin": "node scripts/build.mjs && node scripts/install-plugin.mjs",
+    "install-codex-plugin": "node scripts/build.mjs && node scripts/install-codex-plugin.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/core": "^2.4.0",
+    "@modelcontextprotocol/ext-apps": "^2.0.4",
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}

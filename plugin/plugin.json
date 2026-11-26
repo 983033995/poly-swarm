@@ -1,0 +1,12 @@
+{
+  "name": "poly-swarm",
+  "displayName": "Poly Swarm",
+  "version": "0.5.0",
+  "description": "Heterogeneous CLI multi-agent orchestrator (agy, cursor, grok, opencode, codex, qoder, codebuddy, trae) with shared board, git worktree isolation, strict-readonly verification, and live MCP App dashboard.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Check available CLI backends and open the Poly Swarm dashboard",
+    "Launch a Poly Swarm to implement a feature in one CLI and cross-review it with another",
+    "Run a parallel multi-model code review workflow across cursor, grok, and opencode"
+  ]
+}

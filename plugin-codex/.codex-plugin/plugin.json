@@ -1,0 +1,14 @@
+{
+  "name": "poly-swarm",
+  "version": "0.5.0",
+  "description": "在 Codex 聊天中调度本机 CLI 成员，并打开实时工作台或全局总控。",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Poly Swarm",
+    "shortDescription": "调度本机 AI 成员与查看 Poly Swarm 工作台",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": ["打开 Poly Swarm 总控", "打开本聊天的 Poly Swarm 工作台"]
+  }
+}
