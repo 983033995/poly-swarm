@@ -58,6 +58,10 @@ Optional backend override config: `~/.poly-swarm/backends.json`.
 不禁用 CLI 原有工具，也不为 Skill 内的命令或 MCP 扩权。全局配置按服务存放，项目配置
 可为同一模板覆盖列表。
 
+## Employee execution history
+
+New dispatches resolved to a Talent Park employee persist the stable `staff_id` on the worker seat. Renames and fallback CLI switches do not change the dispatch attribution. Old or ad hoc workers are left unattributed rather than guessed by name. The global Talent Park view and `poly_swarm(action="staff")` show observed assignments, completed/failed/cancelled/running turns and average completed duration from the current service database. These are execution metrics, not task acceptance rates or model quality rankings; Antigravity and Codex keep separate task histories even when they share roster profiles. No routing decision changes in this release.
+
 ## Codex desktop workbench
 
 On macOS with the Codex CLI and Node.js installed, run `pnpm run install-codex-plugin`.

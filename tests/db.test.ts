@@ -22,6 +22,46 @@ afterEach(() => {
 });
 
 describe("PolySwarmDB", () => {
+  it("attributes only populated stable employee IDs, separating assignment and turn outcomes", () => {
+    const db = makeDb();
+    try {
+      const seat = (swarm_id: string, name: string, staff_id?: string) => db.addWorker({
+        swarm_id, name, staff_id, role: "author", capability: "author", backend: "codex",
+        workspace_mode: "inherit", workspace_path: "/tmp/repo",
+      });
+      const a = db.createSwarm({ title: "A", repo_root: "/tmp/repo" });
+      const b = db.createSwarm({ title: "B", repo_root: "/tmp/repo" });
+      seat(a.id, "oldname", "employee-1");
+      seat(b.id, "renamed", "employee-1");
+      seat(b.id, "oldname", "employee-2");
+      seat(a.id, "unattributed");
+      const addTurn = (swarm_id: string, worker_name: string, status: "completed" | "failed" | "cancelled" | "running", duration_ms: number) => {
+        const turn = db.createTurn({ swarm_id, worker_name, backend: "grok", mode: "write", prompt_preview: "" });
+        if (status !== "running") db.completeTurn(turn.id, {
+          status, error_kind: status === "completed" ? "none" : status === "cancelled" ? "cancelled" : "timeout", duration_ms, tool_calls_count: 0,
+        });
+      };
+      addTurn(a.id, "oldname", "completed", 100);
+      addTurn(a.id, "oldname", "failed", 500);
+      addTurn(b.id, "renamed", "completed", 300);
+      addTurn(b.id, "renamed", "cancelled", 100);
+      addTurn(b.id, "renamed", "running", 0);
+      addTurn(a.id, "unattributed", "completed", 20);
+      const rows = db.listStaffPerformance();
+      assert.equal(rows.length, 2);
+      assert.deepEqual({ ...rows[0], last_turn_at: null }, {
+        staff_id: "employee-1", assignments: 2, completed_turns: 2, failed_turns: 1, cancelled_turns: 1,
+        running_turns: 1, average_completed_duration_ms: 200, last_turn_at: null,
+      });
+      assert.equal(rows[1]?.staff_id, "employee-2");
+      assert.equal(rows[1]?.assignments, 1);
+      assert.equal(rows[1]?.completed_turns, 0);
+      assert.equal(rows[1]?.average_completed_duration_ms, null);
+    } finally {
+      db.close();
+    }
+  });
+
   it("rejects an ambiguous talent migration without overwriting either host or marking it imported", () => {
     const left = makeDb();
     const right = makeDb();

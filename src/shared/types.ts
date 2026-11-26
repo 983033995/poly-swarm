@@ -150,6 +150,7 @@ export interface WorkerRecord {
   last_error: string | null;
   owner_instance_id?: string | null;
   identity_id?: string | null;
+  staff_id?: string | null;
   agy_account_id?: string | null;
   parent_node?: string | null;
   policy_source?: PolicyLayer | null;
@@ -813,6 +814,18 @@ export interface AgyCompanyView extends AgyCompany {
   account_hint?: string;
 }
 
+/** Observed execution outcomes in this service's task database, not a quality score. */
+export interface StaffPerformance {
+  staff_id: string;
+  assignments: number;
+  completed_turns: number;
+  failed_turns: number;
+  cancelled_turns: number;
+  running_turns: number;
+  average_completed_duration_ms: number | null;
+  last_turn_at: number | null;
+}
+
 export interface StaffRosterMember {
   id: string;
   name: string;
@@ -871,6 +884,7 @@ export interface DashboardSnapshot {
   effective_defaults: Partial<Record<BackendId, { model?: string; effort?: string }>>;
   backend_configs: Partial<Record<RealBackendId, BackendConfigEntry>>;
   staff_roster?: StaffRosterMember[];
+  staff_performance?: StaffPerformance[];
   dispatch_policy?: ResolvedDispatchPolicy | null;
   dispatch_graph?: DispatchGraph | null;
   config_path?: string;

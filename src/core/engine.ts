@@ -1228,6 +1228,7 @@ export class PolySwarmEngine extends EventEmitter {
       review_of: reviewOf,
       channels: params.channels ?? ["main"],
       identity_id: plan.identity_id,
+      staff_id: staff?.id ?? null,
       agy_account_id: agyAccount,
       parent_node: "coordinator",
       policy_source: policySnapshot.policy_source,
@@ -3204,6 +3205,7 @@ export class PolySwarmEngine extends EventEmitter {
       global_usage_by_vendor: this.db.listGlobalUsageByVendor(),
       ...(opts?.surface === "global" ? {
         agy_companies: this.getAgyCompanies(), agy_company_usage: this.db.aggregateAgyCompanyUsage(),
+        staff_performance: this.db.listStaffPerformance(),
       } : {}),
       swarm_summaries: this.db.listSwarmBriefSummaries([...swarms.map((s) => s.id), ...(swarm ? [swarm.id] : [])]),
       secondment_history: swarm ? this.getSecondmentHistory(swarm.id) : [],

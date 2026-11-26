@@ -525,7 +525,7 @@ function computeRenderDigest(): string {
     return JSON.stringify([
       surf, state.canSendMessage, state.surfaceMode, state.globalOverride, teamBusy,
       state.globalTab, state.globalHrSection, state.selectedVendor,
-      state.staffQuery, state.staffFilter, state.staffEditorDraft, state.staffSaving, snap.staff_roster,
+      state.staffQuery, state.staffFilter, state.staffEditorDraft, state.staffSaving, snap.staff_roster, snap.staff_performance,
       snap.agy_companies, snap.agy_company_usage, state.selectedAgyCompany, state.agyCompanyDraft,
       state.agyCompanySaving, state.agyImportOpen, state.agyImportLoading, state.agyImportFailed,
       state.agyCompanyModels,
