@@ -2434,29 +2434,32 @@ export class PolySwarmEngine extends EventEmitter {
     return false;
   }
 
-  /**
-   * The dashboard is advisory; every merge entry point must check the same
-   * persisted review evidence and pass the exact reviewed object to Git.
-   */
-  private async reviewedMergeSha(swarm: SwarmRecord, author: WorkerRecord): Promise<string> {
-    const review = this.db.listLatestDeliverableReviews(swarm.id).find((item) => item.review_of === author.name);
-    if (!review || review.tag !== "review_pass") throw new Error("Independent review_pass required before merging.");
-    const reviewer = this.db.getWorker(swarm.id, review.sender);
+  private reviewEvidenceError(swarmId: string, author: WorkerRecord, review: BoardMessage): string | null {
+    const reviewer = this.db.getWorker(swarmId, review.sender);
     const turn = review.turn_id ? this.db.getTurn(review.turn_id) : null;
     if (!reviewer || reviewer.role !== "verifier" || reviewer.name === author.name ||
-        !turn || turn.swarm_id !== swarm.id || turn.worker_name !== reviewer.name ||
+        !turn || turn.swarm_id !== swarmId || turn.worker_name !== reviewer.name ||
         turn.mode !== "readonly" || turn.status !== "completed" || turn.error_kind !== "none" ||
         turn.backend === "mock" || !this.registry.get(turn.backend).capabilities.supportsStrictReadonly) {
-      throw new Error("Review must originate from a completed strict-readonly verifier turn.");
+      return "Review must originate from a completed strict-readonly verifier turn.";
     }
     const reviewerModel = turn.actual_model ?? turn.model;
-    const writerBackends = this.db.listWorkerWriteBackends(swarm.id, author.name);
+    const writerBackends = this.db.listWorkerWriteBackends(swarmId, author.name);
     if (!isIndependentBackend(turn.backend, reviewerModel, author) ||
         writerBackends.some((writer) => !isIndependentBackend(turn.backend, reviewerModel, {
           backend: writer.backend, model: writer.actual_model ?? writer.model,
         }))) {
-      throw new Error("Reviewer must be independent of the author and all recorded write backends.");
+      return "Reviewer must be independent of the author and all recorded write backends.";
     }
+    return null;
+  }
+
+  /** Every merge entry point checks the persisted evidence and merges the exact reviewed object. */
+  private async reviewedMergeSha(swarm: SwarmRecord, author: WorkerRecord): Promise<string> {
+    const review = this.db.listLatestDeliverableReviews(swarm.id).find((item) => item.review_of === author.name);
+    if (!review || review.tag !== "review_pass") throw new Error("Independent review_pass required before merging.");
+    const evidenceError = this.reviewEvidenceError(swarm.id, author, review);
+    if (evidenceError) throw new Error(evidenceError);
     const sha = reviewedCommit(review.text);
     if (!sha) throw new Error("Review must identify exactly one commit SHA.");
     if (!swarm.base_branch || !author.worktree_branch || !fs.existsSync(author.workspace_path)) {
@@ -3194,10 +3197,7 @@ export class PolySwarmEngine extends EventEmitter {
       const latest_review = reviews.get(worker.name) ?? null;
       const reviewed_sha = latest_review ? reviewedCommit(latest_review.text) : null;
       const head_sha = status?.head_sha ?? null;
-      const turn = latest_review?.turn_id ? this.db.getTurn(latest_review.turn_id) : null;
-      const independent = Boolean(turn && turn.swarm_id === swarm.id && turn.worker_name === latest_review?.sender &&
-        turn.status === "completed" && turn.mode === "readonly" && turn.backend !== "mock" &&
-        isIndependentBackend(turn.backend, turn.model, worker));
+      const independent = Boolean(latest_review && !this.reviewEvidenceError(swarm.id, worker, latest_review));
       let sha_matches = false;
       if (head_sha && reviewed_sha && status?.branch === worker.worktree_branch) {
         const head = reviewed_sha.length <= head_sha.length ? head_sha :

@@ -473,12 +473,12 @@ console.log(JSON.stringify({type:"result", conversation_id:login, result: "@coor
       const merge = () => engine.mergeWorker(swarm.id, worker.name);
       const say = (tag: "review_pass" | "review_fail", text: string, turn_id?: string) =>
         db.postBoardMessage({ swarm_id: swarm.id, sender: "reviewer", tag, text, turn_id });
-      const review = (backend: BackendId, model: string, tag: "review_pass" | "review_fail", commit: string) => {
+      const review = (backend: BackendId, model: string, tag: "review_pass" | "review_fail", commit: string, actual_model?: string) => {
         const turn = db.createTurn({
           swarm_id: swarm.id, worker_name: "reviewer", backend, model, mode: "readonly", prompt_preview: "review",
         });
         const text = `[${tag}] commit: ${commit}`;
-        db.completeTurn(turn.id, { status: "completed", error_kind: "none", duration_ms: 10, tool_calls_count: 0, output_text: text });
+        db.completeTurn(turn.id, { status: "completed", error_kind: "none", duration_ms: 10, tool_calls_count: 0, output_text: text, actual_model });
         say(tag, text, turn.id);
       };
       assert.match((await merge()).message, /review_pass required/);
@@ -486,6 +486,17 @@ console.log(JSON.stringify({type:"result", conversation_id:login, result: "@coor
       assert.match((await merge()).message, /completed strict-readonly/);
       review("cursor", "gpt-test", "review_pass", sha); // same actual model family as author
       assert.match((await merge()).message, /independent/);
+      review("cursor", "claude-test", "review_pass", sha, "gpt-test");
+      assert.match((await merge()).message, /independent/);
+      assert.equal((await engine.getDashboardSnapshot(swarm.id)).deliverables?.dev?.needs_independent_reviewer, true,
+        "workbench must reject the same reported vendor as the merge boundary");
+      const write = db.createTurn({ swarm_id: swarm.id, worker_name: worker.name, backend: "codebuddy",
+        model: "deepseek-test", mode: "write", prompt_preview: "earlier author backend" });
+      db.completeTurn(write.id, { status: "completed", error_kind: "none", duration_ms: 1, tool_calls_count: 0 });
+      review("cursor", "deepseek-test", "review_pass", sha);
+      assert.match((await merge()).message, /independent/);
+      assert.equal((await engine.getDashboardSnapshot(swarm.id)).deliverables?.dev?.needs_independent_reviewer, true,
+        "workbench must account for previous write backends after handoff");
       review("grok", "grok-test", "review_pass", base);
       assert.match((await merge()).message, /stale/);
       review("grok", "grok-test", "review_fail", sha);
