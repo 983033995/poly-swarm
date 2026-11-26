@@ -63,6 +63,7 @@ import {
 } from "./config.js";
 import { parseMessageSignals, STAFF_ROSTER_KV_KEY, stripMarkdownCode, type PolySwarmDB } from "./db.js";
 import { buildDispatchGraph } from "./graph.js";
+import { rankRoutes } from "./routing.js";
 import { fetchHostConversationMeta, hasHostConversationEnv } from "./host_conversations.js";
 import { aggregateNormalizedUsage, buildSessionTurnUsageItem } from "./pricing.js";
 import {
@@ -77,7 +78,6 @@ import {
   sanitizePolicyLayer,
   saveProjectPolicy,
 } from "./policy.js";
-import { rankRoutes } from "./routing.js";
 import { runGit, WorkspaceManager } from "./worktree.js";
 
 const WORKER_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,23}$/;
