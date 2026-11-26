@@ -60,7 +60,7 @@ Optional backend override config: `~/.poly-swarm/backends.json`.
 
 ## Employee execution history
 
-New dispatches resolved to a Talent Park employee persist the stable `staff_id` on the worker seat. Renames and fallback CLI switches do not change the dispatch attribution. Old or ad hoc workers are left unattributed rather than guessed by name. The global Talent Park view and `poly_swarm(action="staff")` show observed assignments, completed/failed/cancelled/running turns and average completed duration from the current service database. These are execution metrics, not task acceptance rates or model quality rankings; Antigravity and Codex keep separate task histories even when they share roster profiles. No routing decision changes in this release.
+New dispatches resolved to a Talent Park employee persist the stable `staff_id` on the worker seat. Renames and fallback CLI switches do not change the dispatch attribution. Old or ad hoc workers are left unattributed rather than guessed by name. Talent Park cards show attributed assignments and completed/failed turns. `poly_swarm(action="staff")` additionally exposes cancelled/running turns and average completed duration from the current service database. These are execution metrics, not task acceptance rates or model quality rankings; Antigravity and Codex keep separate task histories even when they share roster profiles. Employee attribution itself does not change routing decisions.
 
 ## Codex desktop workbench
 
