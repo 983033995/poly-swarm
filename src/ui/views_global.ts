@@ -749,6 +749,7 @@ export function renderGlobalStaff(
   const animated = getPreferences().animatedAvatars;
 
   const roster: StaffRosterMember[] = snap.staff_roster ?? [];
+  const performanceByStaff = new Map((snap.staff_performance ?? []).map((entry) => [entry.staff_id, entry]));
   const filteredRoster = roster.filter((member) => {
     const hay = `${member.name} ${member.title} ${member.backend} ${member.model} ${member.bio ?? ""} ${agyCompanies.get(member.company_id ?? "")?.name ?? ""}`;
     if (!matches(hay)) return false;
@@ -784,6 +785,7 @@ export function renderGlobalStaff(
         ${
           filteredRoster
             .map((member) => {
+              const performance = performanceByStaff.get(member.id);
               const strictOk = health.get(member.backend)?.supports_strict_readonly === 1;
               const company = agyCompanies.get(member.company_id ?? "");
               const spend = member.backend === "agy" && snap.agy_company_usage
@@ -815,9 +817,15 @@ export function renderGlobalStaff(
                   <div class="pill-row">
                     <span class="badge">${esc(member.role)}</span>
                     ${member.effort ? `<span class="badge">${esc(member.effort)}</span>` : ""}
-                    ${spend?.priced_turns ? `<span class="badge badge-ok">${esc(usd(spend.known_cost_usd))}</span>` : ""}
+                    ${spend?.priced_turns ? `<span class="badge badge-ok" title="${words("供应商/公司总成本（非该员工）", "Provider/company total cost (not this employee)")}">${esc(usd(spend.known_cost_usd))}</span>` : ""}
                   </div>
                   <small class="mono muted">${esc(member.model || company?.default_model || "")}</small>
+                  <small class="muted" title="${words("本服务中的已绑定员工执行记录，不是任务验收率", "Attributed turns in this service; not task acceptance rate")}">
+                    ${performance ? words(
+                      `派遣 ${performance.assignments} · 完成轮次 ${performance.completed_turns} · 失败 ${performance.failed_turns}`,
+                      `${performance.assignments} seats · ${performance.completed_turns} completed turns · ${performance.failed_turns} failed`,
+                    ) : words("暂无已归属的执行记录", "No attributed execution records")}
+                  </small>
                 </div>
               </article>`;
             })

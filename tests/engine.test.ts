@@ -105,10 +105,12 @@ echo '{"type":"item.completed","item":{"type":"agent_message","text":"Fixture re
           id: staffId, name, backend: "trae", model: "auto", role: "verifier", identity_id: identity,
         });
         const { worker } = await engine.addWorker({ swarm_id: swarm.id, name, staff_id: staffId, brief: "Review fixture." });
+        assert.equal(worker.staff_id, staffId);
         assert.equal(worker.identity_id, "verifier");
         assert.equal(worker.role, "verifier");
         assert.equal(worker.workspace_mode, "inherit");
         await waitForCondition(() => db.getLatestWorkerTurn(swarm.id, name)?.status === "completed");
+        assert.equal(db.listStaffPerformance().find((item) => item.staff_id === staffId)?.completed_turns, 1);
       }
       await assert.rejects(() => engine.addWorker({
         swarm_id: swarm.id, name: "explicit", staff_id: "staff-stale", identity: missing, brief: "Invalid identity fixture.",

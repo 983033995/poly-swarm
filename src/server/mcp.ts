@@ -793,11 +793,13 @@ export function createPolySwarmMcpServer(
           }
 
           case "staff": {
+            const performance = new Map(engine.db.listStaffPerformance().map((entry) => [entry.staff_id, entry]));
             const staff = engine.getStaffRoster().filter((entry) => entry.enabled).map((entry) => ({
               id: entry.id, name: entry.name, backend: entry.backend, model: entry.model, role: entry.role,
               company_id: entry.company_id ?? entry.backend,
+              performance: performance.get(entry.id) ?? null,
             }));
-            return okJson("Enabled Talent Park employees. Dispatch with staff_id to use their configured seat.", { staff });
+            return okJson("Enabled Talent Park employees. Dispatch with staff_id to use their configured seat. Performance counts observed turns in this service only, not review or task success.", { staff });
           }
 
           case "companies": {

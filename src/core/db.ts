@@ -22,6 +22,7 @@ import type {
   PendingDispatchStatus,
   PolicyLayer,
   SessionBindingRecord,
+  StaffPerformance,
   SwarmBriefSummary,
   SwarmPlan,
   SwarmRecord,
@@ -578,11 +579,13 @@ export class PolySwarmDB {
     this.ensureColumn("swarms", "wave_index", "INTEGER NOT NULL DEFAULT 1");
     this.ensureColumn("swarms", "auto_created_by_workflow", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("workers", "identity_id", "TEXT");
+    this.ensureColumn("workers", "staff_id", "TEXT");
     this.ensureColumn("workers", "agy_account_id", "TEXT");
     this.ensureColumn("workers", "parent_node", "TEXT");
     this.ensureColumn("workers", "policy_source", "TEXT");
     this.ensureColumn("workers", "resolved_policy_json", "TEXT");
     this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_workers_staff ON workers(staff_id) WHERE staff_id IS NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_swarms_team ON swarms(team_id, wave_index DESC, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_swarms_conversation ON swarms(conversation_id, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_teams_repo_updated ON teams(repo_root, status, updated_at DESC);
@@ -1292,6 +1295,7 @@ export class PolySwarmDB {
     review_of?: string | null;
     channels?: string[];
     identity_id?: string | null;
+    staff_id?: string | null;
     agy_account_id?: string | null;
     parent_node?: string | null;
     policy_source?: PolicyLayer | null;
@@ -1309,9 +1313,9 @@ export class PolySwarmDB {
           id, swarm_id, name, role, capability, backend, model, effort,
           state, workspace_mode, workspace_path, worktree_branch, session_id,
           needs_handoff, auto_fallback, review_of, channels_json,
-          last_read_seq, last_post_seq, identity_id, agy_account_id, parent_node, policy_source, resolved_policy_json,
+          last_read_seq, last_post_seq, identity_id, staff_id, agy_account_id, parent_node, policy_source, resolved_policy_json,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, NULL, 0, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', ?, ?, ?, NULL, 0, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -1329,6 +1333,7 @@ export class PolySwarmDB {
         input.review_of ?? null,
         JSON.stringify(channels),
         input.identity_id ?? null,
+        input.staff_id ?? null,
         input.agy_account_id ?? null,
         input.parent_node ?? null,
         input.policy_source ?? null,
@@ -1338,6 +1343,24 @@ export class PolySwarmDB {
       );
     this.touchSwarm(input.swarm_id);
     return this.getWorker(input.swarm_id, input.name)!;
+  }
+
+  listStaffPerformance(): StaffPerformance[] {
+    return normalizeRows<StaffPerformance>(this.db.prepare(`
+      SELECT w.staff_id,
+             COUNT(DISTINCT w.id) AS assignments,
+             SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS completed_turns,
+             SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed_turns,
+             SUM(CASE WHEN t.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_turns,
+             SUM(CASE WHEN t.status = 'running' THEN 1 ELSE 0 END) AS running_turns,
+             AVG(CASE WHEN t.status = 'completed' THEN t.duration_ms END) AS average_completed_duration_ms,
+             MAX(t.started_at) AS last_turn_at
+      FROM workers w
+      LEFT JOIN turns t ON t.swarm_id = w.swarm_id AND t.worker_name = w.name
+      WHERE w.staff_id IS NOT NULL AND w.staff_id <> ''
+      GROUP BY w.staff_id
+      ORDER BY w.staff_id
+    `).all());
   }
 
   getWorker(swarmId: string, name: string): WorkerRecord | null {
