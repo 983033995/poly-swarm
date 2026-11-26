@@ -1789,6 +1789,12 @@ export class PolySwarmDB {
       );
   }
 
+  listWorkerWriteBackends(swarmId: string, workerName: string): Array<Pick<TurnRecord, "backend" | "model" | "actual_model">> {
+    return normalizeRows<Pick<TurnRecord, "backend" | "model" | "actual_model">>(this.db.prepare(
+      "SELECT DISTINCT backend, model, actual_model FROM turns WHERE swarm_id = ? AND worker_name = ? AND mode = 'write'",
+    ).all(swarmId, workerName));
+  }
+
   listWorkerTurns(swarmId: string, workerName: string, limit = 25): TurnRecord[] {
     const rows = this.db
       .prepare(

@@ -42,6 +42,7 @@ describe("Four-Layer Weighted Dispatch Policy", () => {
     assert.equal(inferVendorFamily("grok", "grok-4"), "xai");
     assert.equal(inferVendorFamily("codebuddy", "kimi-k3.1-pro"), "moonshot");
     assert.equal(inferVendorFamily("opencode", "deepseek/deepseek-v4-pro"), "deepseek");
+    assert.equal(inferVendorFamily("qoder", "dfmodel"), "deepseek");
     assert.equal(inferVendorFamily("trae", null), "bytedance");
     assert.equal(inferVendorFamily("codex", "trae-code"), "bytedance");
     assert.equal(inferVendorFamily("cursor", "volcengine/doubao-seed-code"), "bytedance");

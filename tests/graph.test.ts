@@ -50,7 +50,7 @@ describe("Dispatch Flow Graph & Planned Overlay", () => {
     const repo = await initTempRepo();
     const dataDir = makeTempDir("poly-graph-data-");
     const db = new PolySwarmDB(dataDir);
-    const config = loadPolySwarmConfig("/nonexistent-path");
+    const config = { ...loadPolySwarmConfig("/nonexistent-path"), requireIndependentReviewForMerge: false };
     const engine = new PolySwarmEngine({ db, config });
 
     try {

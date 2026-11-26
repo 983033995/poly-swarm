@@ -28,6 +28,7 @@ export interface PolySwarmConfig {
   identities?: Record<string, DispatchIdentityPatch | null>;
   topology?: PlannedGraphLink[];
   globalUiRaw?: DispatchPolicyLayerConfig;
+  requireIndependentReviewForMerge?: boolean;
   maxConcurrency: number;
   defaultTurnTimeoutMs: number;
   defaultIdleTimeoutMs: number;
@@ -118,6 +119,7 @@ export function loadPolySwarmConfig(configPath?: string): PolySwarmConfig {
     routes: structuredClone(DEFAULT_ROUTES),
     backends: {},
     globalUiRaw,
+    requireIndependentReviewForMerge: true,
     maxConcurrency: 4,
     defaultTurnTimeoutMs: 30 * 60 * 1000,
     defaultIdleTimeoutMs: 10 * 60 * 1000,
@@ -171,6 +173,9 @@ export function loadPolySwarmConfig(configPath?: string): PolySwarmConfig {
     if (Array.isArray(parsed.topology)) {
       base.topology = structuredClone(parsed.topology);
       globalUiRaw.topology = structuredClone(parsed.topology);
+    }
+    if (parsed.requireIndependentReviewForMerge === false) {
+      base.requireIndependentReviewForMerge = false;
     }
     if (typeof parsed.maxConcurrency === "number" && parsed.maxConcurrency >= 1) {
       base.maxConcurrency = Math.min(16, Math.floor(parsed.maxConcurrency));

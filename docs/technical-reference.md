@@ -123,3 +123,10 @@ Use `poly_swarm(action="staff")` to dispatch by `staff_id`, or
 Migrated employees retain their selected account. Unbound employees retain
 the legacy local sign-in. Changing an employee's company affects new
 dispatches only; an existing task will not switch accounts.
+
+
+## Reviewed merge gate
+
+New and existing installations default to requiring independently reviewed code before any Poly Swarm merge (MCP, HTTP, workbench). The verifier must be assigned to the author's `review_of`, complete a strict-readonly turn, use a different backend/model vendor family from the author and recorded write turns, and return `[review_pass] commit: <full SHA>`. The author must commit changes before review. The runtime resolves and validates the SHA, checks the clean author worktree, and merges that exact object. A failed, stale, ambiguous or unattested review blocks merging, even if the caller supplies an expected SHA.
+
+The gate confirms recorded review provenance and Git identity; it does not guarantee reviewer correctness or replace tests. Reviews must carry the full 40/64-character SHA. Vendor-family identification follows the configured/reported model heuristic; unknown models and automatic routing aliases cannot prove independence. The latest review and author state are checked again synchronously immediately before Git starts merging. A review withdrawn after Git starts is outside this gate's authorization boundary. For legacy manual workflows only, a human can explicitly set `"requireIndependentReviewForMerge": false` in the service's `backends.json` and restart. This restores the previous merge path; use the default for safety.
