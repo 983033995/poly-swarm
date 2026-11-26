@@ -6,6 +6,10 @@ Start in Antigravity or Codex desktop. Dispatch local CLI agents for research, i
 
 [简体中文](README.md) · [Technical reference](docs/technical-reference.md)
 
+![Poly Swarm workbench with member seats, progress, and activity](docs/media/workbench.png)
+
+*The real workbench displaying an anonymized release review.*
+
 - **Coordinate from one chat.** Dispatch members and inspect their progress, activity, messages, and diffs in the workbench.
 - **Get a second opinion.** An author can write in a separate Git worktree. Assign review to a backend that supports strict read-only execution. Built-in verifier roles require a different vendor by default.
 - **Pick the model tier for the task.** Reuse one CLI with different supported models or reasoning levels. See usage by member and backend. Figures can come from the CLI, a hook, or an estimate.

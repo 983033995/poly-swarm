@@ -6,6 +6,10 @@
 
 [English](README.en.md) · [快速上手](#快速上手) · [技术说明](docs/technical-reference.md)
 
+![Poly Swarm 工作台：成员席位、状态和单轮执行记录](docs/media/workbench.png)
+
+*实际工作台。画面使用项目验收案例的脱敏记录。*
+
 ## 为什么做它
 
 我订了几家的模型套餐，各家的 Agent 又各有长处。做一个项目时，我常在几个工具间来回搬上下文；改完让同一个模型回头检查，它容易沿着原来的思路跑一遍。
