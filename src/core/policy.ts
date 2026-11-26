@@ -51,7 +51,7 @@ export function inferVendorFamily(backend: BackendId, model?: string | null): st
   if (id.startsWith("claude-")) return "anthropic";
   if (id === "agy" || id.startsWith("gemini-")) return "google";
   if (id === "grok" || id.startsWith("grok-")) return "xai";
-  if (id.startsWith("deepseek-")) return "deepseek";
+  if (id.startsWith("deepseek-") || (backend === "qoder" && id === "dfmodel")) return "deepseek";
   if (/^(kimi-|moonshot-)/.test(id)) return "moonshot";
   if (/^(hy4|hunyuan)/.test(id)) return "tencent";
   if (id.startsWith("qwen")) return "alibaba";

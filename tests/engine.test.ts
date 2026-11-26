@@ -497,6 +497,15 @@ console.log(JSON.stringify({type:"result", conversation_id:login, result: "@coor
       assert.match((await merge()).message, /independent/);
       assert.equal((await engine.getDashboardSnapshot(swarm.id)).deliverables?.dev?.needs_independent_reviewer, true,
         "workbench must account for previous write backends after handoff");
+      review("qoder", "dfmodel", "review_pass", sha);
+      assert.match((await merge()).message, /independent/);
+      for (const model of ["auto", "Ultimate", "Fast", "Efficient", "unknown-model"]) {
+        review("cursor", model, "review_pass", sha);
+        assert.match((await merge()).message, /independent/, model);
+      }
+      review("grok", "grok-test", "review_pass", sha.slice(0, 7));
+      assert.match((await merge()).message, /full commit SHA/);
+      assert.equal((await engine.getDashboardSnapshot(swarm.id)).deliverables?.dev?.sha_matches, false);
       review("grok", "grok-test", "review_pass", base);
       assert.match((await merge()).message, /stale/);
       review("grok", "grok-test", "review_fail", sha);
@@ -507,6 +516,15 @@ console.log(JSON.stringify({type:"result", conversation_id:login, result: "@coor
       fs.unlinkSync(path.join(work.workspacePath, "dirty.txt"));
       assert.equal((await runGit(repo, ["rev-parse", "HEAD"])).stdout.trim(), base);
       assert.match((await engine.mergeWorker(swarm.id, worker.name, { expectedSha: base })).message, /Requested expected SHA/);
+      const mergeBranch = engine.workspace.mergeWorkerBranch.bind(engine.workspace);
+      engine.workspace.mergeWorkerBranch = async (...args) => {
+        review("grok", "grok-test", "review_fail", sha);
+        return mergeBranch(...args);
+      };
+      assert.match((await merge()).message, /state changed/);
+      assert.equal((await runGit(repo, ["rev-parse", "HEAD"])).stdout.trim(), base);
+      engine.workspace.mergeWorkerBranch = mergeBranch;
+      review("grok", "grok-test", "review_pass", sha);
       assert.equal((await merge()).ok, true);
       assert.equal((await runGit(repo, ["rev-parse", "HEAD^2"])).stdout.trim(), sha);
     } finally {

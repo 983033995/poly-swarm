@@ -154,6 +154,14 @@ function isIndependentBackend(backend: BackendId, model: string | null, author: 
     inferVendorFamily(backend, model) !== inferVendorFamily(author.backend, author.model));
 }
 
+/** Auto routing and unknown wrapper IDs cannot attest a model's vendor. */
+function reviewVendorFamily(backend: BackendId, model: string | null): string | null {
+  const id = model?.trim().toLowerCase().split("/").at(-1);
+  if (!id || /^(auto|default|ultimate|fast|efficient)$/.test(id)) return null;
+  const family = inferVendorFamily(backend, model);
+  return family === backend || family === "mock" ? null : family;
+}
+
 function readOnlyReason(swarm: SwarmRecord): string | null {
   return swarm.status === "active" ? null : `Swarm '${swarm.id}' is ${swarm.status} and read-only.`;
 }
@@ -2443,25 +2451,40 @@ export class PolySwarmEngine extends EventEmitter {
         turn.backend === "mock" || !this.registry.get(turn.backend).capabilities.supportsStrictReadonly) {
       return "Review must originate from a completed strict-readonly verifier turn.";
     }
-    const reviewerModel = turn.actual_model ?? turn.model;
+    const reviewerFamily = reviewVendorFamily(turn.backend, turn.actual_model ?? turn.model);
     const writerBackends = this.db.listWorkerWriteBackends(swarmId, author.name);
-    if (!isIndependentBackend(turn.backend, reviewerModel, author) ||
-        writerBackends.some((writer) => !isIndependentBackend(turn.backend, reviewerModel, {
-          backend: writer.backend, model: writer.actual_model ?? writer.model,
-        }))) {
-      return "Reviewer must be independent of the author and all recorded write backends.";
+    const writers = [author, ...writerBackends.map((writer) => ({
+      backend: writer.backend, model: writer.actual_model ?? writer.model,
+    }))];
+    if (!reviewerFamily || writers.some((writer) => {
+      const family = reviewVendorFamily(writer.backend, writer.model);
+      return !family || writer.backend === turn.backend || family === reviewerFamily;
+    })) {
+      return "Reviewer must be independent of the author and all recorded write backends, using identifiable model vendors.";
     }
     return null;
   }
 
   /** Every merge entry point checks the persisted evidence and merges the exact reviewed object. */
-  private async reviewedMergeSha(swarm: SwarmRecord, author: WorkerRecord): Promise<string> {
+  private assertReviewCurrent(swarmId: string, authorName: string, reviewSeq: number): void {
+    this.assertSwarmWritable(swarmId);
+    const latest = this.db.listLatestDeliverableReviews(swarmId).find((item) => item.review_of === authorName);
+    const author = this.db.getWorker(swarmId, authorName);
+    if (latest?.seq !== reviewSeq || !author || author.state === "working") {
+      throw new Error("Review or author state changed while preparing merge; retry after review.");
+    }
+    const evidenceError = this.reviewEvidenceError(swarmId, author, latest);
+    if (evidenceError) throw new Error(evidenceError);
+  }
+
+  private async reviewedMergeSha(swarm: SwarmRecord, author: WorkerRecord): Promise<{ sha: string; reviewSeq: number }> {
     const review = this.db.listLatestDeliverableReviews(swarm.id).find((item) => item.review_of === author.name);
     if (!review || review.tag !== "review_pass") throw new Error("Independent review_pass required before merging.");
     const evidenceError = this.reviewEvidenceError(swarm.id, author, review);
     if (evidenceError) throw new Error(evidenceError);
     const sha = reviewedCommit(review.text);
     if (!sha) throw new Error("Review must identify exactly one commit SHA.");
+    if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha)) throw new Error("Review must identify the full commit SHA.");
     if (!swarm.base_branch || !author.worktree_branch || !fs.existsSync(author.workspace_path)) {
       throw new Error("Reviewed merge requires an existing isolated workspace and target branch.");
     }
@@ -2470,19 +2493,11 @@ export class PolySwarmEngine extends EventEmitter {
       throw new Error("Author workspace is dirty or not on its expected branch. Commit and request a new review.");
     }
     const head = (await runGit(author.workspace_path, ["rev-parse", "--verify", "HEAD^{commit}"])).stdout.trim().toLowerCase();
-    if (!head.startsWith(sha)) throw new Error("Review is stale: author HEAD does not match the reviewed SHA.");
-    if (sha !== head) {
-      const resolved = (await runGit(author.workspace_path, ["rev-parse", `--disambiguate=${sha}`])).stdout.trim().toLowerCase();
-      if (resolved !== head) throw new Error("Reviewed SHA is ambiguous; request a review with the full commit SHA.");
-    }
+    if (head !== sha) throw new Error("Review is stale: author HEAD does not match the reviewed SHA.");
     // Re-read after the asynchronous Git inspection: do not accept a superseded
     // review or a worker that has begun another turn in the meantime.
-    const latest = this.db.listLatestDeliverableReviews(swarm.id).find((item) => item.review_of === author.name);
-    if (latest?.seq !== review.seq || this.db.getWorker(swarm.id, author.name)?.state === "working") {
-      throw new Error("Review or author state changed while preparing merge; retry after review.");
-    }
-    this.assertSwarmWritable(swarm.id);
-    return head;
+    this.assertReviewCurrent(swarm.id, author.name, review.seq);
+    return { sha: head, reviewSeq: review.seq };
   }
 
   async mergeWorker(swarmId: string, name: string, opts?: { expectedSha?: string }) {
@@ -2497,20 +2512,23 @@ export class PolySwarmEngine extends EventEmitter {
     }
     let result: MergeResult;
     let expectedSha = opts?.expectedSha;
+    let beforeMerge: (() => void) | undefined;
     try {
       if (this.config.requireIndependentReviewForMerge !== false) {
-        const reviewedSha = await this.reviewedMergeSha(swarm, worker);
+        const reviewed = await this.reviewedMergeSha(swarm, worker);
+        const reviewedSha = reviewed.sha;
         if (expectedSha !== undefined && (!/^[a-f0-9]{7,64}$/i.test(expectedSha) ||
             !reviewedSha.startsWith(expectedSha.toLowerCase()))) {
           throw new Error("Requested expected SHA does not match the reviewed commit.");
         }
         expectedSha = reviewedSha;
+        beforeMerge = () => this.assertReviewCurrent(swarm.id, worker.name, reviewed.reviewSeq);
       }
       result = await this.workspace.mergeWorkerBranch(
         swarm.repo_root,
         worker.worktree_branch,
         worker.workspace_path,
-        { targetBranch: swarm.base_branch, expectedSha },
+        { targetBranch: swarm.base_branch, expectedSha, beforeMerge },
       );
     } catch (err) {
       result = { ok: false, conflicts: [], message: err instanceof Error ? err.message : String(err) };
@@ -3199,11 +3217,11 @@ export class PolySwarmEngine extends EventEmitter {
       const head_sha = status?.head_sha ?? null;
       const independent = Boolean(latest_review && !this.reviewEvidenceError(swarm.id, worker, latest_review));
       let sha_matches = false;
-      if (head_sha && reviewed_sha && status?.branch === worker.worktree_branch) {
+      if (head_sha && reviewed_sha && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(reviewed_sha) && status?.branch === worker.worktree_branch) {
         const head = reviewed_sha.length <= head_sha.length ? head_sha :
           await runGit(worker.workspace_path, ["rev-parse", "--verify", `${head_sha}^{commit}`])
             .then(({ stdout }) => stdout.trim(), () => "");
-        sha_matches = head.toLowerCase().startsWith(reviewed_sha);
+        sha_matches = head.toLowerCase() === reviewed_sha;
       }
       return [worker.name, {
         worker_name: worker.name, branch: status?.branch ?? worker.worktree_branch, target_branch: swarm.base_branch,

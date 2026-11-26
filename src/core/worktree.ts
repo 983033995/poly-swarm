@@ -460,7 +460,7 @@ export class WorkspaceManager {
     repoRoot: string,
     branchName: string,
     workerWorkspace?: string,
-    opts?: { targetBranch?: string | null; expectedSha?: string | null },
+    opts?: { targetBranch?: string | null; expectedSha?: string | null; beforeMerge?: () => void },
   ): Promise<MergeResult> {
     const reject = (message: string): MergeResult => ({ ok: false, conflicts: [], message });
     const checkTargetBranch = async (): Promise<MergeResult | null> => {
@@ -525,6 +525,8 @@ export class WorkspaceManager {
     const targetChanged = await checkTargetBranch();
     if (targetChanged) return targetChanged;
 
+    // Synchronous final authorization: no awaits between this check and spawning Git.
+    opts?.beforeMerge?.();
     try {
       await runGit(repoRoot, [
         "merge",
