@@ -35,6 +35,7 @@ export interface PolySwarmConfig {
   watchdogIntervalMs: number;
   stallThresholdMs: number;
   hookMetricsDir: string;
+  historyAwareRouting?: boolean;
 }
 
 export const DEFAULT_ROUTES: Record<CapabilityTag, BackendId[]> = {
@@ -192,6 +193,7 @@ export function loadPolySwarmConfig(configPath?: string): PolySwarmConfig {
     if (typeof parsed.stallThresholdMs === "number" && parsed.stallThresholdMs >= 1000) {
       base.stallThresholdMs = parsed.stallThresholdMs;
     }
+    if (parsed.historyAwareRouting === true) base.historyAwareRouting = true;
     if (typeof parsed.hookMetricsDir === "string" && parsed.hookMetricsDir.trim()) {
       base.hookMetricsDir = parsed.hookMetricsDir;
     }
