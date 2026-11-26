@@ -63,6 +63,7 @@ import {
 } from "./config.js";
 import { parseMessageSignals, STAFF_ROSTER_KV_KEY, stripMarkdownCode, type PolySwarmDB } from "./db.js";
 import { buildDispatchGraph } from "./graph.js";
+import { rankRoutes } from "./routing.js";
 import { fetchHostConversationMeta, hasHostConversationEnv } from "./host_conversations.js";
 import { aggregateNormalizedUsage, buildSessionTurnUsageItem } from "./pricing.js";
 import {
@@ -968,6 +969,8 @@ export class PolySwarmEngine extends EventEmitter {
     policy?: ResolvedDispatchPolicy;
     preferredBackends?: BackendId[];
     modelForBackend?: (backend: BackendId) => string | null;
+    effortForBackend?: (backend: BackendId) => string | null;
+    repoRoot?: string | null;
   }): Promise<BackendId> {
     const healthList = await this.ensureHealthChecked();
     const healthMap = new Map(healthList.map((h) => [h.backend, h]));
@@ -981,11 +984,16 @@ export class PolySwarmEngine extends EventEmitter {
       id, policy, healthMap.get(id), params.requireReadonly ?? false, now,
     ).length === 0);
 
-    for (const id of usable) {
-      if (exclude.has(id)) continue;
-      const model = params.modelForBackend ? params.modelForBackend(id) : policy.backends[id]?.defaultModel;
-      if (!excludeFamilies.has(inferVendorFamily(id, model))) return id;
-    }
+    const profile = (id: BackendId) => ({
+      model: params.modelForBackend ? params.modelForBackend(id) : policy.backends[id]?.defaultModel ?? null,
+      effort: params.effortForBackend ? params.effortForBackend(id) : policy.backends[id]?.defaultEffort ?? null,
+    });
+    const eligible = usable.filter((id) => !exclude.has(id) && !excludeFamilies.has(inferVendorFamily(id, profile(id).model)));
+    const ordered = this.config.historyAwareRouting && !params.preferredBackends?.length
+      ? rankRoutes({ candidates: eligible, db: this.db, repoRoot: params.repoRoot,
+        capability: params.capability, readonly: params.requireReadonly ?? false, profile, now }).ordered
+      : eligible;
+    if (ordered[0]) return ordered[0];
 
     if (params.allowSameVendorFallback === true && usable[0]) return usable[0];
     if (exclude.size || excludeFamilies.size) {
@@ -1058,8 +1066,7 @@ export class PolySwarmEngine extends EventEmitter {
       ? this.reviewAuthor(params.swarmId, params.reviewOf) : null;
     const healthMap = new Map((await this.ensureHealthChecked()).map((h) => [h.backend, h]));
     const now = Date.now();
-    let hasRecommendation = false;
-    return this.backendCandidates(policy, plan.capability, plan.preferred_backends).flatMap((backend) => {
+    const candidates = this.backendCandidates(policy, plan.capability, plan.preferred_backends).flatMap((backend) => {
       if (backend === "mock") return [];
       const { model, effort } = resolveEffectiveModelAndEffort({ policy, identity: plan.identity, backend });
       const gate_failures = this.backendGateFailures(backend, policy, healthMap.get(backend), isReadonlyRole(plan.role), now);
@@ -1067,13 +1074,27 @@ export class PolySwarmEngine extends EventEmitter {
         gate_failures.push({ gate: "G6", reason: `Backend '${backend}' is not an independent cross-vendor reviewer for @${author.name}.` });
       }
       const eligible = gate_failures.length === 0;
-      const recommended = eligible && !hasRecommendation;
-      if (recommended) hasRecommendation = true;
       return [{
-        backend, model, effort, vendor_family: inferVendorFamily(backend, model), eligible, recommended,
+        backend, model, effort, vendor_family: inferVendorFamily(backend, model), eligible, recommended: false,
         reasons: eligible ? ["All required gates passed."] : gate_failures.map((g) => g.reason),
         gate_failures,
       }];
+    });
+    const eligible = candidates.filter((candidate) => candidate.eligible);
+    const profiles = new Map<BackendId, { model: string | null; effort: string | null }>(eligible.map((candidate) => [candidate.backend, candidate]));
+    const repoRoot = params.swarmId ? this.db.getSwarm(params.swarmId)?.repo_root : params.repoRoot;
+    const ranked = this.config.historyAwareRouting && !plan.preferred_backends?.length
+      ? rankRoutes({ candidates: eligible.map((candidate) => candidate.backend), db: this.db, repoRoot,
+        capability: plan.capability, readonly: isReadonlyRole(plan.role), profile: (id) => profiles.get(id)!, now })
+      : { ordered: eligible.map((candidate) => candidate.backend), evidence: new Map() };
+    return candidates.map((candidate) => {
+      const history = ranked.evidence.get(candidate.backend);
+      return { ...candidate, recommended: candidate.backend === ranked.ordered[0],
+        reasons: history ? [...candidate.reasons, history.score == null
+          ? `Insufficient local execution history (${history.seats}/5 seats); retaining route priority.`
+          : `Local 30-day execution history: ${history.completed}/${history.seats} seats completed; smoothed reliability ${Math.round(history.score * 100)}% (not acceptance quality).`]
+          : candidate.reasons,
+      };
     });
   }
 
@@ -1165,6 +1186,8 @@ export class PolySwarmEngine extends EventEmitter {
         policy,
         preferredBackends: plan.preferred_backends,
         modelForBackend: (id) => resolveSeat(id).model,
+        effortForBackend: (id) => resolveSeat(id).effort,
+        repoRoot: swarm.repo_root,
       }));
     // Validate backend exists in registry, supports strict readonly when required, and is enabled
     const selectedAdapter = this.registry.get(backend);
@@ -1834,6 +1857,8 @@ export class PolySwarmEngine extends EventEmitter {
             policy,
             preferredBackends: identity?.preferred_backends,
             modelForBackend: (id) => resolveFallback(id).model,
+            effortForBackend: (id) => resolveFallback(id).effort,
+            repoRoot: this.db.getSwarm(swarmId)?.repo_root,
           });
         } catch (err) {
           fallbackError = err instanceof Error ? err.message : String(err);

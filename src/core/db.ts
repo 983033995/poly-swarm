@@ -559,6 +559,7 @@ export class PolySwarmDB {
       CREATE INDEX IF NOT EXISTS idx_board_swarm_seq ON board_messages(swarm_id, seq);
       CREATE INDEX IF NOT EXISTS idx_events_turn_id ON worker_events(turn_id, id);
       CREATE INDEX IF NOT EXISTS idx_turns_worker ON turns(swarm_id, worker_name, started_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_turns_routing ON turns(backend, model, mode, ended_at DESC);
       CREATE INDEX IF NOT EXISTS idx_usage_swarm ON usage_ledger(swarm_id, backend, worker_name);
       CREATE INDEX IF NOT EXISTS idx_dispatch_edges_swarm ON dispatch_edges(swarm_id, id);
       CREATE INDEX IF NOT EXISTS idx_pending_dispatches_status ON pending_dispatches(status, updated_at ASC);
@@ -1795,6 +1796,21 @@ export class PolySwarmDB {
       )
       .all(swarmId, workerName, limit);
     return normalizeRows<TurnRecord>(rows);
+  }
+
+  /** Bounded, project-local terminal observations for the exact requested execution profile. */
+  listRoutingObservations(input: { repoRoot: string; capability: CapabilityTag; mode: "readonly" | "write";
+    backend: BackendId; model: string; effort: string | null; since: number; now: number }): Array<Pick<TurnRecord, "swarm_id" | "worker_name" | "status">> {
+    return normalizeRows<Pick<TurnRecord, "swarm_id" | "worker_name" | "status">>(this.db.prepare(`
+      SELECT t.swarm_id, t.worker_name, t.status
+      FROM turns t JOIN workers w ON w.swarm_id = t.swarm_id AND w.name = t.worker_name
+      JOIN swarms s ON s.id = t.swarm_id
+      WHERE s.repo_root = ? AND w.capability = ? AND t.mode = ?
+        AND t.backend = ? AND t.model = ? AND t.effort IS ?
+        AND t.status IN ('completed', 'failed') AND t.ended_at >= ? AND t.ended_at <= ?
+      ORDER BY t.ended_at DESC, t.id DESC LIMIT 30
+    `).all(path.resolve(input.repoRoot), input.capability, input.mode, input.backend, input.model,
+      input.effort, input.since, input.now));
   }
 
   getLatestWorkerTurn(swarmId: string, workerName: string): TurnRecord | null {

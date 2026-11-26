@@ -22,6 +22,10 @@ Heterogeneous CLI multi-agent orchestrator and Antigravity MCP App (`v0.5.0`).
 - **Readonly History Browsing & Hard Isolation**: Inspecting past sessions enforces UI write-locks across board posting, follow-ups, worker actions, global settings, and chat handoff. `WorkflowRunner` runs all steps through the global concurrency pool with sibling abort on failure and restricts steps to readonly mode in `v0.5`.
 - **Local HTTP Dashboard Security**: Optional `--http-port` mode binds strictly to `127.0.0.1` and enforces `Host` / `Origin` / `Sec-Fetch-Site` checks, mandatory `application/json` on all `POST` requests (including chunked), and strict backend enum validation.
 
+## Optional evidence-aware routing
+
+Set `"historyAwareRouting": true` in the local service's `backends.json` and restart to enable project-local historical routing for automatically chosen backends (including eligible fallback candidates). Default is off. Explicit CLI, employee and ordered identity preferences remain authoritative. After the existing health, cooldown, readonly and independence gates, compare exact requested backend/model/effort, capability and execution mode using terminal outcomes from the past 30 days (at most 30 observations per profile, latest per seat). Unknown and undersampled profiles retain their original priority slots; only profiles with at least five distinct seats are ranked. Candidate diagnostics explain the evidence. This is execution reliability, not a measure of accepted code or task quality; workflow-only turns and cancelled turns do not contribute.
+
 ## Commands
 
 ```bash
